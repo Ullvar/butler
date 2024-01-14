@@ -1,4 +1,4 @@
-module butler
+module github.com/ullvar/butler
 
 go 1.21.5
 
