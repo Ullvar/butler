@@ -278,6 +278,11 @@ func read_calendar(b []byte) {
 
 	sortEvents(events)
 
+	if len(events) == 0 {
+		fmt.Println("No events found.")
+		return
+	}
+
 	todayName := time.Now().Format("Monday")
 
 	fmt.Println("")
