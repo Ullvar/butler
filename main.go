@@ -1,15 +1,20 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -38,8 +43,37 @@ type Event struct {
 	EndDateTime string
 }
 
+func getHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return home
+}
+
+func getCacheDir() string {
+	homeDir := getHomeDir()
+	cacheDir := homeDir + "/.butler"
+	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+		os.Mkdir(cacheDir, 0755)
+	}
+	return cacheDir
+}
+
+func getCredentialsPath() string {
+	cacheDir := getCacheDir()
+	credentialsPath := cacheDir + "/credentials.json"
+	return credentialsPath
+}
+
+func getTokenPath() string {
+	cacheDir := getCacheDir()
+	tokenPath := cacheDir + "/token.json"
+	return tokenPath
+}
+
 func getClient(config *oauth2.Config) *http.Client {
-	tokFile := "token.json"
+	tokFile := getTokenPath()
 	tok, err := tokenFromFile(tokFile)
 	if err != nil {
 		tok = getTokenFromWeb(config)
@@ -50,11 +84,35 @@ func getClient(config *oauth2.Config) *http.Client {
 
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then type the authorization code: \n%v\n", authURL)
+	fmt.Println("Authenticate this app in the browser")
+
+	exec.Command("open", authURL).Start()
 
 	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		log.Fatalf("Unable to read authorization code: %v", err)
+	shutdownChan := make(chan struct{})
+	server := &http.Server{Addr: ":3333"}
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "Authentication successful! You can close this tab.")
+		authCode = r.URL.Query().Get("code")
+		shutdownChan <- struct{}{}
+	})
+
+	go func() {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			fmt.Printf("HTTP server ListenAndServe: %v", err)
+		}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case <-sigChan:
+	case <-shutdownChan:
+	}
+
+	if err := server.Shutdown(context.Background()); err != nil {
+		fmt.Printf("HTTP server Shutdown: %v", err)
 	}
 
 	tok, err := config.Exchange(context.Background(), authCode)
@@ -76,7 +134,7 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 }
 
 func saveToken(path string, token *oauth2.Token) {
-	fmt.Printf("Saving credential file to: %s\n", path)
+	fmt.Println("Saving credential file to: ", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		log.Fatalf("Unable to cache oauth token: %v", err)
@@ -250,6 +308,52 @@ func read_calendar(b []byte) {
 	}
 }
 
+func handleMissingCredentials() bool {
+	fmt.Println("No credentials found. Please create a new project at https://console.cloud.google.com/apis/credentials and download the credentials.json file.")
+	fmt.Print("Press 'Enter' to save the credentials file ...")
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		fmt.Println("No $EDITOR environment variable set. Defaulting to 'vim'.")
+		editor = "vim"
+	}
+
+	tmpFile, err := os.CreateTemp("", "example.*.json")
+	if err != nil {
+		fmt.Printf("Failed to create temporary file: %s\n", err)
+		return false
+	}
+	defer os.Remove(tmpFile.Name())
+
+	cmd := exec.Command(editor, tmpFile.Name())
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Run()
+	if err != nil {
+		fmt.Printf("Failed to open editor: %s\n", err)
+		return false
+	}
+
+	content, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		fmt.Printf("Failed to read temporary file: %s\n", err)
+		return false
+	}
+
+	saveFilePath := getCredentialsPath()
+	err = os.WriteFile(saveFilePath, content, 0644)
+	if err != nil {
+		fmt.Printf("Failed to write to file: %s\n", err)
+		return false
+	}
+
+	fmt.Printf("Content saved to %s\n", saveFilePath)
+	return true
+}
+
 func main() {
 	var mail = flag.Bool("mail", false, "show mail")
 	var calendar = flag.Bool("cal", false, "show calendar")
@@ -258,10 +362,20 @@ func main() {
 
 	flag.Parse()
 
-	b, err := os.ReadFile("credentials.json")
+	var b []byte
+	bt, err := os.ReadFile(getCredentialsPath())
 	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
+		didSave := handleMissingCredentials()
+		if !didSave {
+			log.Fatalf("Unable to save client secret file: %v", err)
+		}
+		bt, err := os.ReadFile(getCredentialsPath())
+		if err != nil {
+			log.Fatalf("Unable to read client secret file: %v", err)
+		}
+		b = bt
 	}
+	b = bt
 
 	if *mail {
 		read_mail(b, numberOfMessages, labelsToSearch)
