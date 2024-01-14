@@ -185,6 +185,7 @@ func read_mail(b []byte, numberOfMessages *int64, labelsToSearch *string) {
 
 	if len(r.Messages) == 0 {
 		fmt.Println("No messages found.")
+		return
 	} else {
 		for _, m := range r.Messages {
 			msg, err := srv.Users.Messages.Get(user, m.Id).Format("full").Do()
