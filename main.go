@@ -274,7 +274,9 @@ func read_calendar(b []byte) {
 			endDateTime = item.End.DateTime
 		}
 
-		events = append(events, Event{Summary: item.Summary, StartDate: startDate, StartTime: parseDate(startDate), EndDateTime: endDateTime})
+		if startDate != "" {
+			events = append(events, Event{Summary: item.Summary, StartDate: startDate, StartTime: parseDate(startDate), EndDateTime: endDateTime})
+		}
 	}
 
 	sortEvents(events)
