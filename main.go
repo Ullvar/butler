@@ -244,7 +244,6 @@ func eventRecurrenceIsOver(event *calendar.Event) bool {
 	}
 	for _, recurrence := range event.Recurrence {
 		if strings.Contains(recurrence, "UNTIL") {
-			fmt.Println(recurrence)
 			// recurrence looks like this: RRULE:FREQ=WEEKLY;UNTIL=20230823T215959Z;BYDAY=TH
 			// and we want to extract the date from the UNTIL part
 			until := strings.Split(recurrence, ";")[1]
