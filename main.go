@@ -238,6 +238,31 @@ func sortEvents(events []Event) {
 	})
 }
 
+func eventRecurrenceIsOver(event *calendar.Event) bool {
+	if event.Recurrence == nil {
+		return false
+	}
+	for _, recurrence := range event.Recurrence {
+		if strings.Contains(recurrence, "UNTIL") {
+			fmt.Println(recurrence)
+			// recurrence looks like this: RRULE:FREQ=WEEKLY;UNTIL=20230823T215959Z;BYDAY=TH
+			// and we want to extract the date from the UNTIL part
+			until := strings.Split(recurrence, ";")[1]
+			untilDate := strings.Split(until, "=")[1]
+			untilTime, err := time.Parse("20060102T150405Z", untilDate)
+			if err != nil {
+				fmt.Println("Error parsing date:", err)
+				return false
+			}
+			if time.Now().After(untilTime) {
+				return true
+			}
+			return false
+		}
+	}
+	return false
+}
+
 func read_calendar(b []byte) {
 	config, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope, gmail.MailGoogleComScope)
 	if err != nil {
@@ -275,7 +300,11 @@ func read_calendar(b []byte) {
 		}
 
 		if startDate != "" {
-			events = append(events, Event{Summary: item.Summary, StartDate: startDate, StartTime: parseDate(startDate), EndDateTime: endDateTime})
+			isOver := eventRecurrenceIsOver(item)
+			if !isOver {
+				newEvent := Event{Summary: item.Summary, StartDate: startDate, StartTime: parseDate(startDate), EndDateTime: endDateTime}
+				events = append(events, newEvent)
+			}
 		}
 	}
 
