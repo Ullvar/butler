@@ -279,7 +279,7 @@ func read_calendar(b []byte) {
 	from := time.Now().Format(time.RFC3339)
 	yyyy, mm, dd := time.Now().Date()
 	tomorrow := time.Date(yyyy, mm, dd+1, 23, 59, 59, 0, time.Now().Location())
-	calendarEvents, err := srv.Events.List(calendarId).TimeMin(from).TimeMax(tomorrow.Format(time.RFC3339)).Do()
+	calendarEvents, err := srv.Events.List(calendarId).ShowDeleted(false).SingleEvents(true).TimeMin(from).TimeMax(tomorrow.Format(time.RFC3339)).Do()
 	if err != nil {
 		log.Fatalf("Unable to retrieve next ten of the user's events: %v", err)
 	}
